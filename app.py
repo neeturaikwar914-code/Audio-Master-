@@ -3,7 +3,6 @@ from flask_cors import CORS
 import os
 import uuid
 import subprocess
-import shutil
 
 app = Flask(__name__)
 CORS(app)
@@ -14,10 +13,10 @@ OUTPUT_FOLDER = "separated"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 
 
-def run_demucs(file_path, job_id):
+def run_demucs(file_path):
     command = [
         "demucs",
         "--two-stems=vocals",
@@ -29,7 +28,7 @@ def run_demucs(file_path, job_id):
 
 
 @app.route("/api/separate", methods=["POST"])
-def separate_audio():
+def separate():
 
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
@@ -37,36 +36,44 @@ def separate_audio():
     file = request.files["file"]
     job_id = str(uuid.uuid4())
 
-    filename = f"{job_id}_{file.filename}"
+    filename = job_id + "_" + file.filename
     file_path = os.path.join(UPLOAD_FOLDER, filename)
+
     file.save(file_path)
 
     try:
-        run_demucs(file_path, job_id)
 
-        # Demucs output folder path
-        folder_name = os.listdir(OUTPUT_FOLDER)[0]
-        stem_path = os.path.join(OUTPUT_FOLDER, folder_name)
+        run_demucs(file_path)
+
+        model_folder = os.listdir(OUTPUT_FOLDER)[0]
+
+        model_path = os.path.join(OUTPUT_FOLDER, model_folder)
+
+        song_folder = os.listdir(model_path)[0]
+
+        stem_path = os.path.join(model_path, song_folder)
 
         stems = {}
-        for stem_file in os.listdir(stem_path):
-            stems[stem_file.split(".")[0]] = f"/download/{folder_name}/{stem_file}"
+
+        for stem in os.listdir(stem_path):
+            stems[stem.split(".")[0]] = f"/download/{model_folder}/{song_folder}/{stem}"
 
         return jsonify({
-            "jobId": job_id,
-            "name": file.filename.rsplit(".", 1)[0],
+            "name": file.filename,
             "stems": stems,
-            "status": "completed"
+            "status": "done"
         })
 
     except Exception as e:
+
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/download/<folder>/<filename>")
-def download_file(folder, filename):
+@app.route("/download/<model>/<folder>/<filename>")
+def download(model, folder, filename):
+
     return send_from_directory(
-        os.path.join(OUTPUT_FOLDER, folder),
+        os.path.join(OUTPUT_FOLDER, model, folder),
         filename,
         as_attachment=True
     )
@@ -74,7 +81,7 @@ def download_file(folder, filename):
 
 @app.route("/")
 def home():
-    return "Lions Flute Backend Running 🚀"
+    return "Audio Master Backend Running 🚀"
 
 
 if __name__ == "__main__":
