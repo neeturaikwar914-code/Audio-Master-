@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 import uuid
 import subprocess
+import shutil
 
 app = Flask(__name__)
 CORS(app)
@@ -13,17 +14,16 @@ OUTPUT_FOLDER = "separated"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
-
-
 def run_demucs(file_path):
+
     command = [
         "demucs",
-        "--two-stems=vocals",
+        "-n", "htdemucs",
         "--device", "cpu",
         "-o", OUTPUT_FOLDER,
         file_path
     ]
+
     subprocess.run(command)
 
 
@@ -31,37 +31,38 @@ def run_demucs(file_path):
 def separate():
 
     if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+        return jsonify({"error": "No file"}), 400
 
     file = request.files["file"]
+
     job_id = str(uuid.uuid4())
 
     filename = job_id + "_" + file.filename
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
 
-    file.save(file_path)
+    file.save(filepath)
 
     try:
 
-        run_demucs(file_path)
+        run_demucs(filepath)
 
-        model_folder = os.listdir(OUTPUT_FOLDER)[0]
+        model_folder = os.path.join(OUTPUT_FOLDER, "htdemucs")
 
-        model_path = os.path.join(OUTPUT_FOLDER, model_folder)
+        song_folder = os.listdir(model_folder)[-1]
 
-        song_folder = os.listdir(model_path)[0]
-
-        stem_path = os.path.join(model_path, song_folder)
+        stem_path = os.path.join(model_folder, song_folder)
 
         stems = {}
 
         for stem in os.listdir(stem_path):
-            stems[stem.split(".")[0]] = f"/download/{model_folder}/{song_folder}/{stem}"
+
+            name = stem.split(".")[0]
+
+            stems[name] = f"/download/htdemucs/{song_folder}/{stem}"
 
         return jsonify({
             "name": file.filename,
-            "stems": stems,
-            "status": "done"
+            "stems": stems
         })
 
     except Exception as e:
@@ -81,7 +82,7 @@ def download(model, folder, filename):
 
 @app.route("/")
 def home():
-    return "Audio Master Backend Running 🚀"
+    return "Audio Backend Running 🚀"
 
 
 if __name__ == "__main__":
